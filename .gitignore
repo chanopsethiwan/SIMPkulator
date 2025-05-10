@@ -1,3 +1,5 @@
 .env
 buildDeploy.sh
 notebook/*
+.aws-sam/*
+.aws-sam/
