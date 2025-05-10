@@ -1,0 +1,9 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "simpkulator-aurora-2"
+resolve_s3 = true
+s3_prefix = "simpkulator-aurora-2"
+region = "ap-southeast-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "DBName=\"SimpkulatorDB\" DBUsername=\"admin\" VpcId=\"vpc-017f64f9fe7d45679\" Subnet1=\"subnet-0f106760f017e17f9\" Subnet2=\"subnet-047235bb351af51d3\" MinACU=\"0.5\" MaxACU=\"4\""
+image_repositories = []

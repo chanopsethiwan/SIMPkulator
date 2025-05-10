@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Aurora Serverless v2 (MySQL) with AWS SAM
+
+# Global affects everything in the template
+Globals:
+  Function:
+    Timeout: 900 # Timeout in seconds, max is 900
+    MemorySize: 1024 # Function memory in MB
+    # Environment:
+    #   Variables: # Environment variables, can store variables in lambda that can be taken out including table name, s3 name etc. 
+    #     # HTML_TEST_TABLE: !Ref ReeracoenHtmlTable # reference name of the dynamodb table HtmlTestTable
+    #     # S3_BUCKET: !Ref ReeracoenS3 # reference name of the s3 bucket ExampleS3
+
+Parameters:
+  DBName:
+    Type: String
+    Default: SimpkulatorDB
+  DBUsername:
+    Type: String
+    Default: admin
+  DBPassword:
+    Type: String
+    NoEcho: true
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  Subnet1:
+    Type: AWS::EC2::Subnet::Id
+  Subnet2:
+    Type: AWS::EC2::Subnet::Id
+  MinACU: # ACU is Aurora Capacity Unit
+    Type: Number
+    Default: 0.5
+  MaxACU:
+    Type: Number
+    Default: 4
+
+Resources:
+  HelloWorldFunction: #test function
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: hello_world/ # Path to the function's code, relative to the location of the template file
+      Handler: app.hello_world # Function within your code that Lambda calls to start execution
+      Runtime: python3.11 # Runtime environment for the Lambda function you are uploading
+      Events: # Events that trigger this function to run
+        HelloWorld: # API Gateway HTTP endpoint
+          Type: Api 
+          Properties:
+            Path: /hello # Path for API Gateway HTTP endpoint
+            Method: get # HTTP method for API Gateway HTTP endpoint
+
+  CompanyPeersFunction: 
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: simpkulator/ # Path to the function's code, relative to the location of the template file
+      Handler: app.company_peers # Function within your code that Lambda calls to start execution
+      Runtime: python3.11 # Runtime environment for the Lambda function you are uploading
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+      Events: # Events that trigger this function to run
+        CompanyPeers: # API Gateway HTTP endpoint
+          Type: Api 
+          Properties:
+            Path: /CompanyPeers  # Path for API Gateway HTTP endpoint
+            Method: get # HTTP method for API Gateway HTTP endpoint
+
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Ingress for Aurora Serverless
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0  # For development; restrict for prod as it allows anyone to access it (use /16 instad of /0)
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: AuroraDBSecret
+      Description: Credentials for Aurora Serverless v2
+      SecretString: !Sub |
+        {
+          "username": "${DBUsername}",
+          "password": "${DBPassword}"
+        }
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Aurora DB subnet group
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: 8.0.mysql_aurora.3.07.0
+      DatabaseName: !Ref DBName
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:username}}']]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds: 
+      - !Ref AuroraSecurityGroup
+      EnableHttpEndpoint: true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinACU
+        MaxCapacity: !Ref MaxACU
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-mysql
+
+Outputs:
+  ClusterArn:
+    Description: ARN of the Aurora DB Cluster
+    Value: !Ref AuroraCluster
+  SecretArn:
+    Description: ARN of the Secrets Manager Secret
+    Value: !Ref DBSecret
+  DBEndpoint:
+    Description: Endpoint address of the Aurora DB Cluster
+    Value: !GetAtt AuroraCluster.Endpoint.Address
